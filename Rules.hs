@@ -11,7 +11,6 @@ import Data.Text (strip)
 import Text.Read (readMaybe)
 
 
-import qualified Data.Bool as B
 data Rank = Knight | Rook | Bishop | Pawn | King | Queen | Turd
           deriving (Show, Eq)
 data Colour = White | Black
