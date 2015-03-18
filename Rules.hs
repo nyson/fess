@@ -62,7 +62,35 @@ data Move = M TPos TPos
 getPiece :: Board -> TPos -> Piece
 getPiece (B board) pos = piece $ board ! pos
 
--- TODO: make a ruleset
+{- TODO: make and check the ruleset
+
+Data needed for decision
+* Move:   Position to another Position
+* Rank:   Knight | Rook | Bishop | Pawn | King | Queen | Turd
+* Colour: White | Black
+
+Legend: Verizontal = Horizontal or vertical
+
+Common rules:
+* Pieces can't generally move across other pieces, but there are exceptions.
+* Pieces can't land on friendly pieces.
+* Pieces can't exist outside the board
+
+Rules by rank:
+* Knights can move 3 steps in one verizontal direction
+   and then 2 steps orthogonal to the steps before
+  Knights aren't blocked by allied pieces, but may not land
+   on a friendly piece
+* Rooks can move any steps in a verizontal direction
+* Bishops can move any steps in a diagonal direction
+* Queens can move as rooks and bishops
+* Kings can move as queens but just one step
+   unless they're doing a castling
+* Pawns can move just one step, but diagonally if there's a piece to catch
+   pawns cannot move forward if another piece is blocking the way
+
+
+-}
 validMove :: Move -> Bool
 validMove (M p p') = undefined
 
