@@ -72,14 +72,14 @@ Data needed for decision
 Legend: Verizontal = Horizontal or vertical
 
 Common rules:
-* Pieces can't generally move across other pieces, but there are exceptions.
+* Pieces, except the Knight, can't generally move across other pieces.
 * Pieces can't land on friendly pieces.
 * Pieces can't exist outside the board
 
 Rules by rank:
 * Knights can move 3 steps in one verizontal direction
    and then 2 steps orthogonal to the steps before
-  Knights aren't blocked by allied pieces, but may not land
+* Knights aren't blocked by allied pieces, but may not land
    on a friendly piece
 * Rooks can move any steps in a verizontal direction
 * Bishops can move any steps in a diagonal direction
@@ -87,9 +87,50 @@ Rules by rank:
 * Kings can move as queens but just one step
    unless they're doing a castling
 * Pawns can move just one step, but diagonally if there's a piece to catch
-   pawns cannot move forward if another piece is blocking the way
+   pawns cannot move forward if another piece is blocking the way.
+* Pawns may move two steps forward on the first turn
+
+Checking rules:
+* A king is put in check when it may be taken by an opposing piece
+   the next turn.
+* When a king is in check, it may only do moves that removes the threat
+   by either
+** Block the threat
+** Remove the threat
+** Move to a non-threatened space
+* If none of the above is possible, it's a check mate and the opposing player
+   has won the game.
+
+Castling rules:
+* Only a king may perform a castling on a rook
+* Pieces affected by the castling may not have moved before
+* No pieces may stand between the king and the rook
+* The king may not currently be in check, land in check or pass any tile
+   that would put them in check
 
 
+__En Passant Rule__
+╒═╤═╕    ╒═╤═╕    ╒═╤═╕
+│♟│ │    │♟│ │    │♟│ │
+├─┼─┤    ├─┼─┤    ├─┼─┤
+│ │♟│ => │♙│♟│ => │ │ │
+├─┼─┤    ├─┼─┤    ├─┼─┤
+│ │ │    │ │ │    │♟│ │
+├─┼─┤    ├─┼─┤    ├─┼─┤
+│♙│ │    │ │ │    │ │ │
+╘═╧═╛    ╘═╧═╛    ╘═╧═╛
+
+En passant:
+* A pawn that moved two steps may be a victim of an en passant rule,
+   the opposing player may the next turn attack the piece by moving to
+   the tile between the players two positions. This move is only valid the
+   turn after the Pawn moved.
+
+Pawn promotion:
+* A pawn reaching the eight rank (the tile row at the end of the board)
+   may be promoted to another piece. The piece may be converted to a queen,
+   bishop, rook or knight of the same colour. There is no limit on how many
+   pieces of a kind there may be. 
 -}
 validMove :: Move -> Bool
 validMove (M p p') = undefined
