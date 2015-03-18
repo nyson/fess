@@ -60,7 +60,7 @@ data Move = M TPos TPos
                      
 
 getPiece :: Board -> TPos -> Piece
-getPiece = undefined
+getPiece (B board) pos = piece $ board ! pos
 
 -- TODO: make a ruleset
 validMove :: Move -> Bool
