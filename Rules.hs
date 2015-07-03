@@ -1,33 +1,78 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+module Rules where
+
 {-
 some kind of chess thingy
 -}
 
 import Data.Array.IArray
-import Data.List (intersperse, groupBy, sortBy)
+import Data.List (groupBy, sortBy)
 import Data.List.Split (splitOn)
 import Data.Text (strip)
 import Text.Read (readMaybe)
+import Data.Tuple (swap)
+import Data.Char (ord, chr, toLower)
+import qualified Data.Function as Func (on)
+import Data.Maybe
+import Data.Default
+import qualified Data.Map as Map 
 
 
-data Rank = Knight | Rook | Bishop | Pawn | King | Queen | Turd
+import Control.Monad.Writer.Lazy
+
+import Debug.Trace (trace)
+import Position
+import Stringboxer
+
+newtype Board = B (Array TPos Tile)
+
+instance Show Board where
+  show (B board) = box . (:) (' ': ['1'..'8']) . mapWC (concatMap pp) ['A'..]
+                  . groupsort $ board
+    where
+      groupsort = groupBy ((==) `Func.on` snd . fst)
+            . sortBy (compare `Func.on` snd . fst)
+            . assocs
+      -- Map with a counter 
+      mapWC f cs = map (\(a,b) -> a:f b) . zip cs
+      pp ((c, i), tile) = case piece tile of
+        None -> case colour tile of
+          Black -> "■"
+          White -> "□"
+        p    -> show p
+
+
+data Chess = Chess {
+  board :: Board,
+  turn  :: Colour,
+  flags :: Map.Map (Colour, String) Bool,
+  moves :: [Move] -- filo stack; move m, of moves = (m:ms), is always the
+                  -- latest move 
+  }
+
+instance Show Chess where
+  show b = "It's " ++ show (turn b) ++ "s turn and the game has so far had "
+           ++ show (length $ moves b) ++ " moves.\n" ++ show (board b)
+
+instance Default Chess where
+  def = Chess {board= newBoard, turn= White, moves= [], flags = Map.empty }
+
+
+-- Ranks of chess pieces
+data Rank = Turd | King | Queen | Rook | Bishop | Knight | Pawn 
           deriving (Show, Eq)
-data Colour = White | Black
-            deriving (Show, Eq)
 
-data Piece = P Colour Rank | None 
-           deriving Eq 
-
-
--- | a game concists of a board and whos turn it is
-data Game = G Board Colour
+-- Colour of chess pieces
+data Colour = White | Black deriving (Show, Eq, Ord)
+-- A piece                     
+data Piece = P Colour Rank | None deriving Eq 
 
 
--- maybe im needing later
-                                      
 instance Show Piece where
+  -- maybe im needing later
   show (P _ Turd) = "💩" 
+
   show None  = " "
   show (P colour rank) = case colour of
     Black -> case rank of
@@ -46,21 +91,29 @@ instance Show Piece where
       Queen  -> "♕"
 
 data Tile = T {
-  color :: Colour,
-  pos   :: TPos,
-  piece :: Piece 
-              }
-            
+  colour :: Colour,
+  pos    :: TPos,
+  piece  :: Piece 
+  }
+
+
 instance Show Tile where
   show = show . piece
 
-type TPos = (Char, Int)
+shlow :: Show a => a -> String
+shlow = map toLower . show
+
 data Move = M TPos TPos
           deriving Show
-                     
 
+-- | Get piece on a certain tile of the board
 getPiece :: Board -> TPos -> Piece
 getPiece (B board) pos = piece $ board ! pos
+
+-- | Predicate for position being on the board
+inBoardRange :: TPos -> Bool
+inBoardRange (a, b) = p a && p b
+  where p i = i >= 1 && i <= 8  
 
 {- TODO: make and check the ruleset
 
@@ -77,8 +130,8 @@ Common rules:
 * Pieces can't exist outside the board
 
 Rules by rank:
-* Knights can move 3 steps in one verizontal direction
-   and then 2 steps orthogonal to the steps before
+* Knights can move 2 or 1 steps in one verizontal direction
+   and then 1 or 2 steps steps orthogonal to the steps before
 * Knights aren't blocked by allied pieces, but may not land
    on a friendly piece
 * Rooks can move any steps in a verizontal direction
@@ -121,10 +174,10 @@ __En Passant Rule__
 ╘═╧═╛    ╘═╧═╛    ╘═╧═╛
 
 En passant:
-* A pawn that moved two steps may be a victim of an en passant rule,
+* A pawn that moved two steps may be a victim of an en passant as
    the opposing player may the next turn attack the piece by moving to
    the tile between the players two positions. This move is only valid the
-   turn after the Pawn moved.
+   turn after the pawn victim moved.
 
 Pawn promotion:
 * A pawn reaching the eight rank (the tile row at the end of the board)
@@ -132,114 +185,144 @@ Pawn promotion:
    bishop, rook or knight of the same colour. There is no limit on how many
    pieces of a kind there may be. 
 -}
-validMove :: Move -> Bool
-validMove (M p p') = undefined
+
+-- type Step = (Int, Int)
+-- type WalkPredicate = TPos -> Step -> Bool
+    
+
+movesOf :: Chess -> TPos -> [Move]
+movesOf s pos@(x,y) = wrap $ case getPiece (board s) pos of
+  None       -> []
+  P col rank -> case rank of
+    Turd   -> [(x',y') | x' <- [1..8], y' <- [1..8]]
+    
+    Knight -> let incrs = [1,2,-1,-2]
+              in filter (\p -> not $ ownerEq s p col)
+                 [(x+x',y+y') | x' <- incrs, y' <- incrs, abs y' /= abs x']
+              
+    Bishop -> takeWhileAhead (pred col)
+              $ steps (anyway $ Incs [(1, 1)]) pos
+
+    Rook   -> takeWhileAhead (pred col)
+              $ steps (anyway $ Incs [(1, 0), (0,1)]) pos
+              
+    Queen  -> takeWhileAhead (pred col)
+              $ steps (anyway $ Incs [(1,0), (0,1), (1,1)]) pos
+              
+    King   ->
+      let kingHasMoved = const False
+          hasBeenChecked = False
+      in execWriter $ do
+        -- Basic king movement 
+        tell [(a', b') | a' <- [x-1..x+1], b' <- [y-1..y+1], (a', b') /= (x, y)]
+        -- Castling
+        tell []
+      
+              
+    Pawn   ->
+      let (start, inc) = setupPawn col
+          enemy = opponent col
+          (oppStart, oInc) = setupPawn enemy
+          hasEnemy ep = ownerEq s ep enemy
+          pawnThatMovedLastTurn p = case head $ moves s of
+            M from to@(a,b) | p == to && ownerEq s to enemy
+                              -> from == (a, oppStart)
+            _                 -> False
+                  
+      in execWriter $ do
+        -- Basic movement
+        tell [(x, y `inc` 1)]
+        -- May move one more step if it's in starting position
+        tell $ if start /= y then [] else [(x, y `inc` 2)]
+
+        -- May move diagonally if there's an enemy piece there
+        tell $ filter hasEnemy [(x + i, y `inc` 1) | i <- [-1, 1]]
+                
+        -- Enforceing enpassant rules 
+        tell
+          $ map (\(a,b) -> (a, b `inc` 1))
+          $ filter pawnThatMovedLastTurn [(x + i, y) | i <- [-1, 1]]
+  where
+    -- Final wrap of the move check
+    wrap = map (M pos) . filter inBoardRange
+    
+    -- | takeWhile but with the predicate of the element tupled with its
+    -- |  lookahead 
+    takeWhileAhead p xs = map fst $ takeWhile p (zip xs $ tail xs)
+
+    -- | predicate for walking pieces like rook, queen and bishop
+    pred col (position, next) = inBoardRange position
+
+    setupPawn Black = (2, (+))
+    setupPawn White = (7, (-))
+
+checked :: Colour -> Board -> Bool
+checked = undefined
+
+opponent :: Colour -> Colour
+opponent White = Black
+opponent Black = White
+
+owner :: Board -> TPos -> Maybe Colour
+owner (B b) p = if inBoardRange p then
+                  case piece $ b ! p of
+                    None  -> Nothing
+                    P a _ -> Just a
+                else Nothing
+
+ownerEq :: Chess -> TPos -> Colour -> Bool
+ownerEq c p col = case owner (board c) p of
+  Just col' -> col == col'
+  Nothing   -> False
+
+-- | Moves a piece on the board, should only be done after validMove
+movePiece :: Board -> Move -> Board
+movePiece (B board) (M p p') = undefined 
 
 strToMove :: String -> Maybe Move
 strToMove s = case splitOn " " s of
-  [p1, _to, p2] -> case (str2p p1, str2p p2) of
-    (Just p1', Just p2') -> Just $ M p1' p2'
-    _                    -> Nothing 
-    where
-      str2p :: String -> Maybe TPos
-      str2p  (c:i) = case readMaybe i :: Maybe Int of
-        Just i' -> if validPos (c, i')
-                   then Just (c, i')
-                   else Nothing
-        Nothing -> Nothing
+  [p1, _to, p2] -> do
+    p1' <- str2p p1
+    p2' <- str2p p2
+    return $ M p1' p2'
+      where
+        stripParens = filter $ \x -> x `notElem` "()"
+        str2p str = case splitOn "," . stripParens $ str of
+          [c,i] -> do
+            c' <- readMaybe c
+            i' <- readMaybe i
+            return (c', i')
+          _ -> Nothing
+  _ -> Nothing 
 
     
-validPos :: TPos -> Bool
-validPos (c,i) = c >= 'A' && c <= 'H' && i >= 1 && i <= 8
-
-startPiece :: TPos -> Piece
-startPiece (ch, i) = case i of
-  1 -> P White $ lineup ch
-  2 -> P White Pawn
-  7 -> P Black Pawn
-  8 -> P Black $ lineup ch
-  _ -> if i >= 3 && i <= 6 then None
-       else error $ "Out of boards at " ++ show ch ++ show i
-  where lineup c | elem c "AH" = Rook
-                 | elem c "BG" = Knight
-                 | elem c "CF" = Bishop
-                 | c == 'D'    = King
-                 | c == 'E'    = Queen
-                 | otherwise   = error $ "Out of boards at "
-                                 ++ show ch ++ show i
-                                 
-          
-  
- 
-setPiece :: Tile -> Piece -> Tile 
-setPiece t p = t {piece = p}
-
 newTile :: TPos -> Tile
-newTile p = T { color = col p,
-                pos   = p,
-                piece = startPiece p}
+newTile p = T { colour = col p,
+                pos    = p,
+                piece  = startPiece p}
   where
-    evenCh ch = ch `elem` "BDFH"
-    col (ch, i) | evenCh ch `xor` even i = Black
+    col (ch, i) | even ch `xor` even i = Black
                 | otherwise              = White
-    xor a b = (a || b) && (not $ a && b)
+    xor a b = (a || b) && not (a && b)
+    startPiece :: TPos -> Piece
+    startPiece (ch, i) = case i of
+      1 -> P White $ lineup ch
+      2 -> P White Pawn
+      7 -> P Black Pawn
+      8 -> P Black $ lineup ch
+      _ -> if i >= 3 && i <= 6 then None
+           else error $ "Out of boards at " ++ show ch ++ show i
+                
+    lineup c | c `elem` [1,8] = Rook
+             | c `elem` [2,7] = Knight
+             | c `elem` [3,6] = Bishop
+             | c == 5         = King
+             | c == 4         = Queen
 
-newtype Board = B (Array (Char, Int) Tile)
-
-instance Show Board where
-  show (B bard) = box . map (concatMap pp) . groupsort $ bard
-    where 
-      groupsort = groupBy (\t1 t2 -> i t1 == i t2)
-            . sortBy (\t1 t2 -> i t1 `compare` i t2 )
-            . assocs
-
-      i ((_,i'),_) = i'
-      pp ((c, i), tile) = show $ piece tile
 
 newBoard :: Board
-newBoard = B $ array (('A', 1), ('H', 8))
+newBoard = B $ array ((1, 1), (8, 8))
         [(pos, newTile pos) | pos <- boardRange]
-  where boardRange = [(ch, i) | ch <- ['A'..'H'], i <- [1..8]]
+  where boardRange = [(ch, i) | ch <- [1..8], i <- [1..8]]
 
 
-
-{-
-Translates, for example
-
-> putStr $ show ["hej", "du", "glade"]
-["hej", "du", "glade"]
-to
-
-> putStr $ box ["hej", "du", "glade"]
-╒═╤═╤═╤═╤═╕
-│h│e│j│ │ │
-├─┼─┼─┼─┼─┤
-│d│u│ │ │ │
-├─┼─┼─┼─┼─┤
-│g│l│a│d│e│
-╘═╧═╧═╧═╧═╛
-
--}
-
-box :: [String] -> String
-box ss | len < 0   = error "can't make an empty box!" 
-       | otherwise = topLine
-                     ++ (concat $ intersperse divider $ map row' ss)
-                     ++ bottomLine
-  where
-    len = (maximum $ map length ss) - 1
-    liney pre line cross suf 
-      = (++ "\n") $ intersperse line $ pre ++ replicate len cross ++ suf
-
-    strLine pre str line suf
-      = (++ "\n") $ pre ++ (intersperse line str) ++ suf
-
-    row' str | length str < (len+1) = row $ str
-                                      ++ (replicate (len + 1 - length str) ' ')
-             | otherwise = row str 
-    topLine    = liney   "╒" '═' '╤' "╕"
-    row str    = strLine "│" str '│' "│"
-    divider    = liney   "├" '─' '┼' "┤"
-    bottomLine = liney   "╘" '═' '╧' "╛" 
-
-              
